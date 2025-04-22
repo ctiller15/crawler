@@ -8,7 +8,7 @@ import (
 	"golang.org/x/net/html/atom"
 )
 
-func getURLsFromHTML(htmlBody, rawBaseURL string) ([]string, error) {
+func GetURLsFromHTML(htmlBody, rawBaseURL string) ([]string, error) {
 	urls := make([]string, 0)
 
 	reader := strings.NewReader(htmlBody)
