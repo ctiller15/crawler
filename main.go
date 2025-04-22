@@ -122,7 +122,7 @@ func printReport(pages map[string]int, baseURL string) {
 	})
 
 	for _, kv := range ss {
-		fmt.Printf("found %d internal links to %s\n", kv.Value, kv.Key)
+		fmt.Printf("Found %d internal links to %s\n", kv.Value, kv.Key)
 	}
 }
 
