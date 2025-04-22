@@ -7,6 +7,8 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"sort"
+	"strconv"
 	"strings"
 	"sync"
 
@@ -19,6 +21,7 @@ type config struct {
 	mu                 *sync.Mutex
 	concurrencyControl chan struct{}
 	wg                 *sync.WaitGroup
+	maxPages           int
 }
 
 func getHTML(rawURL string) (string, error) {
@@ -46,6 +49,13 @@ func (cfg *config) crawlPage(rawCurrentURL string) {
 	cfg.concurrencyControl <- struct{}{}
 	defer func() { <-cfg.concurrencyControl }()
 	defer cfg.wg.Done()
+	cfg.mu.Lock()
+	if len(cfg.pages) >= cfg.maxPages {
+		cfg.mu.Unlock()
+		return
+	} else {
+		cfg.mu.Unlock()
+	}
 
 	u, err := url.Parse(rawCurrentURL)
 	if err != nil {
@@ -81,7 +91,7 @@ func (cfg *config) crawlPage(rawCurrentURL string) {
 		return
 	}
 
-	fmt.Printf("html found: %s\n", html)
+	// fmt.Printf("html found: %s\n", html)
 
 	rawBaseURL := fmt.Sprintf("%s://%s", cfg.baseURL.Scheme, cfg.baseURL.Hostname())
 	foundUrls, err := internal.GetURLsFromHTML(html, rawBaseURL)
@@ -94,18 +104,61 @@ func (cfg *config) crawlPage(rawCurrentURL string) {
 
 }
 
+func printReport(pages map[string]int, baseURL string) {
+	fmt.Printf("=============================\nREPORT for %s\n=============================\n", baseURL)
+
+	type kv struct {
+		Key   string
+		Value int
+	}
+
+	var ss []kv
+	for k, v := range pages {
+		ss = append(ss, kv{k, v})
+	}
+
+	sort.Slice(ss, func(i, j int) bool {
+		return ss[i].Value > ss[j].Value
+	})
+
+	for _, kv := range ss {
+		fmt.Printf("found %d internal links to %s\n", kv.Value, kv.Key)
+	}
+}
+
 func main() {
 	args := os.Args[1:]
 
 	if len(args) < 1 {
 		log.Print("no website provided")
 		os.Exit(1)
-	} else if len(args) > 1 {
+	} else if len(args) > 3 {
 		log.Print("too many arguments provided")
 		os.Exit(1)
 	}
 
 	baseUrl := args[0]
+	var maxConcurrencyCount int = 5
+	var maxPagesCount int = 100
+
+	if len(args) > 1 {
+		count, err := strconv.Atoi(args[1])
+		if err != nil {
+			log.Fatal(err)
+		}
+
+		maxConcurrencyCount = count
+	}
+
+	if len(args) > 2 {
+		pCount, err := strconv.Atoi(args[2])
+		if err != nil {
+			log.Fatal(err)
+		}
+
+		maxPagesCount = pCount
+	}
+
 	log.Printf("starting crawl of: %s", baseUrl)
 
 	parsedBase, err := url.Parse(baseUrl)
@@ -118,8 +171,9 @@ func main() {
 		pages:              pages,
 		baseURL:            parsedBase,
 		mu:                 &sync.Mutex{},
-		concurrencyControl: make(chan struct{}, 5),
+		concurrencyControl: make(chan struct{}, maxConcurrencyCount),
 		wg:                 &sync.WaitGroup{},
+		maxPages:           maxPagesCount,
 	}
 
 	cfg.wg.Add(1)
@@ -127,8 +181,5 @@ func main() {
 	cfg.wg.Wait()
 
 	fmt.Println()
-	fmt.Println("===Final report===")
-	for key, val := range pages {
-		fmt.Printf("%s: %d\n", key, val)
-	}
+	printReport(cfg.pages, baseUrl)
 }
